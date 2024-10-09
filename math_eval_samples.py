@@ -145,5 +145,5 @@ print((answer_types_all==0).mean(axis=-1).mean()) #ratio correct
 print((answer_types_all==1).mean(axis=-1).mean()) #ratio incorrect
 print((answer_types_all==2).mean(axis=-1).mean()) #ratio weird formatting
 
-np.save(os.path.join(ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}.npy"), answers_all)
-np.save(os.path.join(ckpt_dir, f"{args.eval_type}_answer_types{args.num_samples}_seed{args.seed}.npy"), answer_types_all)
+np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}.npy"), answers_all)
+np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answer_types{args.num_samples}_seed{args.seed}.npy"), answer_types_all)
