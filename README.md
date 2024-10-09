@@ -1,6 +1,6 @@
 # Reasoning Generalization
 
-Code for reproducing the experiments in [What Do Learning Dynamics Reveal About Generalization in LLM Reasoning?](http://katiekang.com/pdfs/reasoning_generalization.pdf). 
+Code for reproducing the experiments in [What Do Learning Dynamics Reveal About Generalization in LLM Reasoning?](). 
 
 <p align="center"> <img src="figures/teaser1_3.png" alt="Figure 1" height="300px" style="margin-right: 10px;"/> <img src="figures/teaser2_3.png" alt="Figure 2" height="300px"/> </p> 
 
@@ -13,7 +13,7 @@ cd reasoning_generalization
 pip install -r requirements.txt
 ```
 
-Fill huggingface token in `huggingface_params.py`.
+Fill in huggingface token in `huggingface_params.py`.
 
 ## Usage
 

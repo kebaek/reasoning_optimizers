@@ -132,11 +132,4 @@ dmypy.json
 .idea
 
 
-
-huggingface_params.py
-data/GSM8k_aug/AugGSM8K_part1.jsonl
-data/GSM8k_aug/AugGSM8K_part2.jsonl
-data/MATH_aug/AugMATH_part1.jsonl
-data/MATH_aug/AugMATH_part2.jsonl
-ckpts/
 wandb/
