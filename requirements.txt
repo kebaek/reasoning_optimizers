@@ -1,0 +1,14 @@
+numpy==1.26.4
+rouge_score
+fire
+openai
+transformers
+torch
+sentencepiece
+tokenizers
+wandb
+vllm==0.4.0
+datasets==2.19.2
+matplotlib
+accelerate
+palettable
