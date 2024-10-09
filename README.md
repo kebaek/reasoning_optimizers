@@ -1,6 +1,8 @@
 # Reasoning Generalization
 
 Code for reproducing the experiments in [What Do Learning Dynamics Reveal About Generalization in LLM Reasoning?](http://katiekang.com/pdfs/reasoning_generalization.pdf). 
+![](figures/teaser1_3.png)![](figures/teaser2_3.png)
+
 
 ## Setup
 
