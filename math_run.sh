@@ -33,4 +33,4 @@ evaluate_checkpoints_math() {
 
 torchrun --nproc_per_node=4 --master_port=1234 math_train.py --train_type full --learning_rate 2e-5 --epochs 3
 RUN_NAME=math_orig_3epochs_full_lr2e-05_bs128
-evaluate_checkpoints_math $RUN_NAME #only run this if num epochs is less than num GPUs
+evaluate_checkpoints_math $RUN_NAME #only use this if num epochs is less than num GPUs
