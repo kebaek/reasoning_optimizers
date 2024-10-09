@@ -2,7 +2,7 @@
 
 Code for reproducing the experiments in [What Do Learning Dynamics Reveal About Generalization in LLM Reasoning?](http://katiekang.com/pdfs/reasoning_generalization.pdf). 
 
-<p align="center"> <img src="figures/teaser1_3.png" alt="Figure 1" width="45%" style="margin-right: 10px;"/> <img src="figures/teaser2_3.png" alt="Figure 2" width="45%"/> </p>
+<p align="center"> <img src="figures/teaser1_3.png" alt="Figure 1" height="45%" style="margin-right: 10px;"/> <img src="figures/teaser2_3.png" alt="Figure 2" height="45%"/> </p>
 
 
 ## Setup
