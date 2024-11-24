@@ -1,11 +1,13 @@
-from vllm import LLM, SamplingParams
+#from vllm import LLM, SamplingParams
 from datasets import load_dataset
 import numpy as np
 import os
 import argparse
-import re 
-from utils import is_equiv
-import json
+from peft import PeftModel
+from utils import *
+from huggingface_params import cache_dir, use_auth_token
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from tqdm import tqdm 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_dir", type=str)
@@ -16,24 +18,36 @@ parser.add_argument("--temp", type=float, default=0.8)
 
 
 args = parser.parse_args()
+tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir, 
+                                          cache_dir=cache_dir,
+                                          use_auth_token = use_auth_token,
+                                          trust_remote_code=True)
 
+model = AutoModelForCausalLM.from_pretrained(args.ckpt_dir, 
+                                            cache_dir=cache_dir,
+                                            use_auth_token = use_auth_token,
+                                            trust_remote_code=True)
+special_tokens_dict = dict()
+if tokenizer.pad_token is None:
+    special_tokens_dict["pad_token"] = DEFAULT_PAD_TOKEN
 
-llm = LLM(model=args.ckpt_dir, tensor_parallel_size=1, trust_remote_code=True)  # Name or path of your model
+smart_tokenizer_and_embedding_resize(
+    special_tokens_dict=special_tokens_dict,
+    tokenizer=tokenizer,
+    model=model,
+)
+model = PeftModel.from_pretrained(model, args.ckpt_dir)
+model.generation_config.pad_token_id = tokenizer.pad_token_id
 
+model.to("cuda")
+
+model.eval()
 
 if args.eval_type == "test":
     dataset = load_dataset("gsm8k", "main")
 
     test_questions = dataset["test"]["question"]
     test_answers = dataset["test"]['answer']
-    eval_questions = test_questions
-    eval_questions = [question + "\nAnswer:" for question in eval_questions]
-    eval_answers = test_answers
-elif args.eval_type == "test_small":
-    dataset = load_dataset("gsm8k", "main")
-
-    test_questions = dataset["test"]["question"][:10]
-    test_answers = dataset["test"]['answer'][:10]
     eval_questions = test_questions
     eval_questions = [question + "\nAnswer:" for question in eval_questions]
     eval_answers = test_answers
@@ -44,19 +58,7 @@ elif args.eval_type == "train":
     eval_questions = train_questions
     eval_questions = [question + "\nAnswer:" for question in train_questions]
     eval_answers = train_answers
-elif args.eval_type == "train_first":
-    dataset = load_dataset("gsm8k", "main")
-    train_questions = dataset["train"]["question"]
-    train_answers = dataset["train"]['answer']
-    eval_questions = [question + "\nAnswer: First" for question in train_questions]
-    eval_answers = train_answers
-elif args.eval_type == "train_we":
-    dataset = load_dataset("gsm8k", "main")
-    train_questions = dataset["train"]["question"]
-    train_answers = dataset["train"]['answer']
-    eval_questions = [question + "\nAnswer: We know that" for question in train_questions]
-    eval_answers = train_answers
-    
+
 
 def get_aug_answer(full_answer):
     idx = full_answer.rfind("The answer is")
@@ -79,10 +81,7 @@ def extract_latex(text):
 
 def answer_type_individial(output , answer):
     answer = extract_latex(answer)
-
-    output_answer = get_aug_answer(output)
-    if output_answer == None:
-        output_answer = extract_latex(output)
+    output_answer = extract_latex(output)
     if output_answer is not None and answer is not None:
         eqiv = is_equiv(answer, output_answer, verbose=False)
 
@@ -95,25 +94,30 @@ def answer_type_individial(output , answer):
     return answer_type
 
 
-sampling_params = SamplingParams(
-    n = args.num_samples,
-    temperature=args.temp,
-    max_tokens=512,
-    top_p=0.95,
-    seed=args.seed,
-    stop="\nDone."
-)
+n = args.num_samples
+temperature=args.temp
+max_tokens=512
+top_p=0.95
+seed=args.seed
+stop="\nDone."
+bad_words_ids = [tokenizer(stop).input_ids]
 
-output = llm.generate(eval_questions, sampling_params)
+print('What is sample', n)
+output = [] 
+for x in tqdm(eval_questions): 
+    tokens = tokenizer(x, return_tensors='pt').to('cuda')
+    predictions = model.generate(**tokens, do_sample=True, temperature=temperature, max_new_tokens=max_tokens, top_p=top_p, bad_words_ids=bad_words_ids, num_return_sequences=n)
+    samples = [tokenizer.decode(o) for o in predictions]
+    output.append(samples)
 
 answer_types_all = []
 answers_all = []
 for i in range(len(output)):
     answer_types = []
     answers = []
-    for item in output[i].outputs:
-        answers.append(item.text)
-        answer_type = answer_type_individial(item.text, eval_answers[i])
+    for item in output[i]:
+        answers.append(item)
+        answer_type = answer_type_individial(item, eval_answers[i])
         answer_types.append(answer_type)
     answer_types_all.append(answer_types)
     answers_all.append(answers)

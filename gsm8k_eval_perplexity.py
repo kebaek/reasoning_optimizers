@@ -14,6 +14,7 @@ import copy
 from typing import Sequence, Dict
 import logging
 
+from huggingface_params import cache_dir, use_auth_token
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_dir", type=str)
@@ -22,13 +23,21 @@ parser.add_argument("--ckpt", type=str)
 
 args = parser.parse_args()
 
+print(args.ckpt_dir)
+model_name = args.ckpt_dir
+tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir, 
+                                          cache_dir=cache_dir,
+                                          use_auth_token = use_auth_token,
+                                          trust_remote_code=True)
 
-model_name = f"ckpts/{args.ckpt_dir}/checkpoint-{args.ckpt}"  # Replace with the specific LLaMA model you want
-tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-
-model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(args.ckpt_dir, 
+                                            cache_dir=cache_dir,
+                                            use_auth_token = use_auth_token,
+                                            trust_remote_code=True)
 
 model.to("cuda")
+
+model.generation_config.pad_token_id = tokenizer.pad_token_id
 
 model.eval()
 
@@ -64,7 +73,7 @@ def calculate_output_perplexity(input_text, output_text, model, tokenizer):
     return perplexity, num_tokens
 
 
-dataset = load_dataset("gsm8k", "main")
+dataset = load_dataset("gsm8k", "main", cache_dir=cache_dir)
 train_questions = dataset["train"]["question"]
 train_answers = dataset["train"]['answer']
 eval_questions = train_questions

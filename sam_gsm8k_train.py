@@ -1,20 +1,67 @@
-import torch
-import transformers
-from transformers import Trainer, TrainingArguments
+# SAM optimizer using Trainer with FSDP 
+
 import os
-from datasets import load_dataset
+from typing import Dict
 import numpy as np
 import argparse
-from peft import LoraConfig, get_peft_model
-from huggingface_params import cache_dir, use_auth_token
 from utils import *
+from contextlib import contextmanager
+# ---- Torch ----- # 
+import torch
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP 
+from torch.distributed.fsdp._runtime_utils import _lazy_init
+from torch.distributed.fsdp._common_utils import TrainingState
 import torch.distributed as dist
+# ---- Huggingface ---- # 
+import transformers
+from transformers import Trainer, TrainingArguments
+from peft import LoraConfig, get_peft_model
 from accelerate import Accelerator
+from huggingface_params import cache_dir, use_auth_token
+
 
 accelerator = Accelerator()
-
 os.environ["WANDB_PROJECT"] = "reasoning_optimizer"  # name your W&B project
 os.environ["WANDB_LOG_MODEL"] = "false"  # log all model checkpoints
+
+def print_trainable_parameters(model):
+    """
+    Prints the number of trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    print(
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    )
+
+## [Speed up SAM] Ensures that the gradients are sharded for FSDP
+    ## (if gradients are not synced across devices, only the parameters are sharded.)
+@contextmanager
+def sync(module):
+    _lazy_init(module, module)
+    if not module._is_root:
+        raise RuntimeError(
+            "`no_sync()` on inner FSDP instances is not supported. Please call `no_sync()` on root FSDP module."
+        )
+    module._assert_state(TrainingState.IDLE)
+    old_flags = []
+    for m in module.modules():
+        if isinstance(m, FSDP):
+            old_flags.append((m, m._sync_gradients))
+            m._sync_gradients = True
+    try:
+        yield
+    finally:
+        for m, old_flag in old_flags:
+            assert m._sync_gradients, (
+                "`_sync_gradients` was incorrectly set to "
+                "`False` while in the `sync()` context manager"
+            )
+            m._sync_gradients = old_flag
 
 def make_supervised_data_module(output_dir, train_type, tokenizer: transformers.PreTrainedTokenizer) -> Dict:
 
@@ -65,8 +112,9 @@ def train():
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--model", type=str, default="meta-llama/Meta-Llama-3-8B")
     parser.add_argument("--lora", type=int, default=0)
-    parser.add_argument("--rho", type=float, default=0)
     parser.add_argument("--dont_save_intermediate", action='store_true')
+    parser.add_argument("--rho", type=float, default=5e-6)
+    parser.add_argument("--split_gpus", action='store_true')
 
     args = parser.parse_args()
     train_type = args.train_type
@@ -81,13 +129,13 @@ def train():
     project_name = "gsm8k_orig"
     model_name = args.model.split('/')[-1].lower()
     if use_lora != 0:
-        run_name  = f"{epochs}epochs_{train_type}_lr{learning_rate}_rho0_bs{batch_size}_lora{use_lora}_{model_name}"
+        run_name  = f"{epochs}epochs_{train_type}_lr{learning_rate}_rho{args.rho}_bs{batch_size}_lora{use_lora}_{model_name}"
     else:
-        run_name  = f"{epochs}epochs_{train_type}_lr{learning_rate}_rho0_bs{batch_size}_{model_name}"
+        run_name  = f"{epochs}epochs_{train_type}_lr{learning_rate}_rho{args.rho}__bs{batch_size}_{model_name}"
     
     
     batch_size = batch_size
-    num_devices = torch.cuda.device_count()
+    num_devices = torch.cuda.device_count() // 2
     per_device_batch_size = args.per_device_batch_size
     gradient_accumulation_steps = int((batch_size/per_device_batch_size)/num_devices)
     print("Num devices: ", num_devices)
@@ -106,6 +154,81 @@ def train():
     
     output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
     
+    class CustomTrainer(Trainer):
+        sam_rho = args.rho
+        split_gpus = args.split_gpus
+        custom_num_devices = num_devices            
+
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            torch.distributed.barrier()
+
+            ## Save Old Parameters by Cloning
+            model_old_params = {}
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    if p.requires_grad:
+                        if self.split_gpus:
+                            model_old_params[name] = p.clone().to(f"cuda:{p.device.index + self.custom_num_devices}")
+                        else:
+                            model_old_params[name] = p.clone()
+            
+            ## Get Nabla W
+            with sync(model): 
+                # To keep gradients sharded. Trainer by default runs training_step
+                # with no_sync context manager for all grad accumulation step before last one.
+                model.train()
+                model.zero_grad()
+                with self.compute_loss_context_manager():
+                    loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+
+                # approx grad scaling
+                ratio = torch.tensor(10 / loss.item()).to(accelerator.device)
+                ratio = accelerator.reduce(ratio, reduction='mean')
+                loss = ratio.item() * loss
+                loss.backward()
+                ## Clip Grad Norm
+                norm = model.clip_grad_norm_(self.sam_rho)
+
+                # Adjust Norm of Grad
+                if norm < self.sam_rho:
+                    lr = self.sam_rho/norm 
+                else:
+                    lr = 1
+
+                ## Perturb Weights
+                with torch.no_grad():
+                    # self.custom_apply(model, lambda m: self.perturb(m, lr))
+                    for p in model.parameters():
+                        if p.grad is None: continue 
+                        if p.data.shape != p.grad.shape:
+                            print('before FSDP summon', p.data.shape, p.grad.shape)
+                        p.data += lr * p.grad
+                
+            ## Get Training Step at Perturbed Model
+            model.zero_grad()
+            super().training_step(model, inputs, num_items_in_batch)
+
+            # append current gradient to list of gradients 
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    if p.requires_grad:
+                        old_params = model_old_params[name]
+                        if old_params.grad is not None and p.grad is not None:
+                            if self.split_gpus:
+                                p.data = old_params.data.to(f"cuda:{p.device.index}")
+                                p.grad += old_params.grad.to(f"cuda:{p.device.index}")
+                            else:
+                                p.data = old_params.data
+                                p.grad += old_params.grad
+                        else: 
+                            if self.split_gpus:
+                                p.data = old_params.data.to(f"cuda:{p.device.index}")
+                            else:
+                                p.data = old_params.data
+
+            del model_old_params
+            return loss.detach()
+
     
     training_args = TrainingArguments(
         num_train_epochs = epochs, 
@@ -132,7 +255,6 @@ def train():
         weight_decay=0.01,
         dataloader_num_workers=accelerator.num_processes,
     )
-        
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
@@ -147,7 +269,6 @@ def train():
         padding_side="right",
         cache_dir=cache_dir,
         trust_remote_code=True)
-
 
     special_tokens_dict = dict()
     if tokenizer.pad_token is None:
@@ -177,9 +298,10 @@ def train():
             task_type="CAUSAL_LM"  # Task type
         )
         model = get_peft_model(model, lora_config)
+        print_trainable_parameters(model)
 
     data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
-    trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
+    trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     
     if not save_intermediate:

@@ -1,20 +1,95 @@
+import copy
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Sequence
+
 import torch
 import transformers
+from torch.utils.data import Dataset
 from transformers import Trainer, TrainingArguments
 import os
 from datasets import load_dataset
 import numpy as np
 import argparse
+import json
 from peft import LoraConfig, get_peft_model
 from huggingface_params import cache_dir, use_auth_token
 from utils import *
+import datasets
 import torch.distributed as dist
 from accelerate import Accelerator
 
 accelerator = Accelerator()
 
 os.environ["WANDB_PROJECT"] = "reasoning_optimizer"  # name your W&B project
-os.environ["WANDB_LOG_MODEL"] = "false"  # log all model checkpoints
+os.environ["WANDB_LOG_MODEL"] = "checkpoint"  # log all model checkpoints
+
+def average_metric_across_devices(metric_value):
+    # Ensure that the metric_value is a tensor
+    tensor_value = torch.tensor(metric_value).cuda()
+    # Reduce across all processes (sum the metric values)
+    dist.reduce(tensor_value, dst=0, op=dist.ReduceOp.SUM)
+    # Divide by the world size to get the average
+    if dist.get_rank() == 0:
+        tensor_value /= dist.get_world_size()
+    return tensor_value.item()
+
+class CustomTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            logits = outputs[1]
+            
+            
+            
+
+            
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            
+                    
+            loss_fct = CrossEntropyLoss(reduction='none')
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+    
+            
+            loss_per_example = loss.view(labels.size(0), -1).sum(dim=1) / (shift_labels != -100).sum(dim=1)
+            
+            mask = (loss.view(labels.size(0), -1) > 0).to(torch.float)
+            
+            # if dist.get_rank() == 0:
+            #     import IPython; IPython.embed()
+            # else:
+            #     dist.barrier()
+            
+            
+            total_epochs = self.args.num_train_epochs
+            current_epoch = self.state.epoch
+            
+            if current_epoch < total_epochs-1:
+                ratio_masked = 0
+                for example_idx in range(len(mask)):
+                    if (torch.log(loss_per_example[example_idx])) < -2:
+                        mask[example_idx]*=0.01
+                        # print("Masked")
+                        # print(torch.log(loss_per_example))
+                        ratio_masked+=1
+                ratio_masked=ratio_masked/len(mask)
+                avg_ratio_masked = average_metric_across_devices(ratio_masked)
+                    # else:
+                    #     print("Not masked")
+            else:
+                ratio_masked = 0
+                avg_ratio_masked = 0
+
+
+            loss = (loss*mask.view(-1)).sum()
+            
+            avg_loss = average_metric_across_devices(loss.item())
+            if dist.get_rank() == 0:
+                self.log({'ratio_masked': avg_ratio_masked,
+                          "loss": avg_loss})
+                
+            return (loss, outputs) if return_outputs else loss
 
 def make_supervised_data_module(output_dir, train_type, tokenizer: transformers.PreTrainedTokenizer) -> Dict:
 
@@ -179,7 +254,7 @@ def train():
         model = get_peft_model(model, lora_config)
 
     data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
-    trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
+    trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     
     if not save_intermediate:
