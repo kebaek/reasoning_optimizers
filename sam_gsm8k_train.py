@@ -6,11 +6,13 @@ import numpy as np
 import argparse
 from utils import *
 from contextlib import contextmanager
+from collections import defaultdict
 # ---- Torch ----- # 
 import torch
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP 
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp._common_utils import TrainingState
+from torch.distributed.fsdp.sharded_grad_scaler import _refresh_per_optimizer_state as refresh_optim
 import torch.distributed as dist
 # ---- Huggingface ---- # 
 import transformers
@@ -135,7 +137,10 @@ def train():
     
     
     batch_size = batch_size
-    num_devices = torch.cuda.device_count() // 2
+    if args.split_gpus:
+        num_devices = torch.cuda.device_count() // 2
+    else:
+        num_devices = torch.cuda.device_count()
     per_device_batch_size = args.per_device_batch_size
     gradient_accumulation_steps = int((batch_size/per_device_batch_size)/num_devices)
     print("Num devices: ", num_devices)
@@ -178,16 +183,16 @@ def train():
                 # with no_sync context manager for all grad accumulation step before last one.
                 model.train()
                 model.zero_grad()
+
+                old_optim_stats = self.accelerator.scaler._per_optimizer_states.copy()
+                self.accelerator.scaler._per_optimizer_states = defaultdict(refresh_optim)
+
                 with self.compute_loss_context_manager():
                     loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+                self.accelerator.backward(loss)
 
-                # approx grad scaling
-                ratio = torch.tensor(10 / loss.item()).to(accelerator.device)
-                ratio = accelerator.reduce(ratio, reduction='mean')
-                loss = ratio.item() * loss
-                loss.backward()
                 ## Clip Grad Norm
-                norm = model.clip_grad_norm_(self.sam_rho)
+                norm = self.accelerator.clip_grad_norm_(model.parameters(), self.sam_rho)
 
                 # Adjust Norm of Grad
                 if norm < self.sam_rho:
@@ -203,6 +208,8 @@ def train():
                         if p.data.shape != p.grad.shape:
                             print('before FSDP summon', p.data.shape, p.grad.shape)
                         p.data += lr * p.grad
+
+                self.accelerator.scaler._per_optimizer_states = old_optim_stats
                 
             ## Get Training Step at Perturbed Model
             model.zero_grad()
