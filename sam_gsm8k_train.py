@@ -19,10 +19,12 @@ import transformers
 from transformers import Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model
 from accelerate import Accelerator
-from huggingface_params import cache_dir, use_auth_token
-
+# from huggingface_params import cache_dir, use_auth_token
+from dataclasses import asdict
 
 accelerator = Accelerator()
+my_token = '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'
+cache_dir = '/tmp/kbaek/hf_cache'
 os.environ["WANDB_PROJECT"] = "reasoning_optimizer"  # name your W&B project
 os.environ["WANDB_LOG_MODEL"] = "false"  # log all model checkpoints
 
@@ -157,7 +159,8 @@ def train():
         save_strategy = "no"
         save_steps = None
     
-    output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
+    #output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
+    output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
     
     class CustomTrainer(Trainer):
         sam_rho = args.rho
@@ -201,6 +204,7 @@ def train():
                     lr = 1
 
                 ## Perturb Weights
+                norm = 0
                 with torch.no_grad():
                     # self.custom_apply(model, lambda m: self.perturb(m, lr))
                     for p in model.parameters():
@@ -208,12 +212,14 @@ def train():
                         if p.data.shape != p.grad.shape:
                             print('before FSDP summon', p.data.shape, p.grad.shape)
                         p.data += lr * p.grad
-
+                        norm += p.grad.norm().item() ** 2
+                # norm = norm ** (0.5)
+                # print('Norm After Clipping:', norm)
                 self.accelerator.scaler._per_optimizer_states = old_optim_stats
                 
             ## Get Training Step at Perturbed Model
             model.zero_grad()
-            super().training_step(model, inputs, num_items_in_batch)
+            loss = super().training_step(model, inputs, num_items_in_batch)
 
             # append current gradient to list of gradients 
             with torch.no_grad():
@@ -234,7 +240,7 @@ def train():
                                 p.data = old_params.data
 
             del model_old_params
-            return loss.detach()
+            return loss
 
     
     training_args = TrainingArguments(
@@ -249,7 +255,7 @@ def train():
         optim = "adamw_torch",
         output_dir = output_dir,
         evaluation_strategy = "no",
-        report_to = "wandb",
+        # report_to = "wandb",
         logging_strategy = "steps",
         logging_steps = 25,
         save_strategy = save_strategy,
@@ -265,16 +271,18 @@ def train():
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        use_auth_token = use_auth_token,
+        # use_auth_token = use_auth_token,
         cache_dir=cache_dir,
+        token=my_token,
         trust_remote_code=True)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
-        use_auth_token = use_auth_token,
+        # use_auth_token = use_auth_token,
         model_max_length=1024,
         padding_side="right",
         cache_dir=cache_dir,
+        token=my_token,
         trust_remote_code=True)
 
     special_tokens_dict = dict()
@@ -306,6 +314,12 @@ def train():
         )
         model = get_peft_model(model, lora_config)
         print_trainable_parameters(model)
+
+    if accelerator.is_main_process:
+        import wandb
+        config = vars(args) | asdict(training_args)
+        run = wandb.init(project='reasoning_optimizer', entity='kbaek', config=config)
+        training_args.output_dir = training_args.output_dir + '_WANDB' + run.id
 
     data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
     trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)

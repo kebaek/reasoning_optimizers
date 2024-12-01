@@ -6,13 +6,15 @@ from datasets import load_dataset
 import numpy as np
 import argparse
 from peft import LoraConfig, get_peft_model
-from huggingface_params import cache_dir, use_auth_token
+# from huggingface_params import cache_dir, use_auth_token
 from utils import *
 import torch.distributed as dist
 from accelerate import Accelerator
+from dataclasses import asdict
 
 accelerator = Accelerator()
-
+my_token = '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'
+cache_dir = '/tmp/kbaek/hf_cache'
 os.environ["WANDB_PROJECT"] = "reasoning_optimizer"  # name your W&B project
 os.environ["WANDB_LOG_MODEL"] = "false"  # log all model checkpoints
 
@@ -104,8 +106,8 @@ def train():
         save_strategy = "no"
         save_steps = None
     
-    output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
-    
+    #output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
+    output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
     
     training_args = TrainingArguments(
         num_train_epochs = epochs, 
@@ -136,14 +138,16 @@ def train():
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        use_auth_token = use_auth_token,
+        # use_auth_token = use_auth_token,
         cache_dir=cache_dir,
+        token=my_token,
         trust_remote_code=True)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
-        use_auth_token = use_auth_token,
+        # use_auth_token = use_auth_token,
         model_max_length=1024,
+        token=my_token,
         padding_side="right",
         cache_dir=cache_dir,
         trust_remote_code=True)
@@ -177,6 +181,12 @@ def train():
             task_type="CAUSAL_LM"  # Task type
         )
         model = get_peft_model(model, lora_config)
+
+    if accelerator.is_main_process:
+        import wandb
+        config = vars(args) | asdict(training_args)
+        run = wandb.init(project='reasoning_optimizer', entity='kbaek', config=config)
+        training_args.output_dir = training_args.output_dir + '_WANDB' + run.id
 
     data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
