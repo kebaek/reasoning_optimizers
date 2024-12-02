@@ -21,6 +21,7 @@ from peft import LoraConfig, get_peft_model
 from accelerate import Accelerator
 # from huggingface_params import cache_dir, use_auth_token
 from dataclasses import asdict
+from copy import deepcopy 
 
 accelerator = Accelerator()
 my_token = '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'
@@ -176,11 +177,12 @@ def train():
                 for name, p in model.named_parameters():
                     if p.requires_grad:
                         if self.split_gpus:
-                            model_old_params[name] = p.to(f"cuda:{p.device.index + self.custom_num_devices}")
-                            model_old_params[name].grad = p.grad.to(f"cuda:{p.device.index + self.custom_num_devices}")
+                            model_old_params[name] = deepcopy(p)
+                            model_old_params[name].data = model_old_params[name].data.to(f"cuda:{p.device.index + self.custom_num_devices}")
+                            model_old_params[name].grad = model_old_params[name].grad.to(f"cuda:{p.device.index + self.custom_num_devices}")
                         else:
-                            model_old_params[name] = p.clone()
-                            model_old_params[name].grad = p.grad.clone()
+                            model_old_params[name] = deepcopy(p)
+                        torch.cuda.empty_cache()
             
             ## Get Nabla W
             with sync(model): 
@@ -213,18 +215,20 @@ def train():
                             print('before FSDP summon', p.data.shape, p.grad.shape)
                         p.data += lr * p.grad
                 self.accelerator.scaler._per_optimizer_states = old_optim_stats
-                
+                        
             ## Get Training Step at Perturbed Model
-            model.zero_grad()
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    if p.requires_grad:
+                        old_params = model_old_params[name]
+                        if old_params.grad is not None:
+                            p.grad = old_params.grad.to(f"cuda:{p.device.index}")      
             super().training_step(model, inputs, num_items_in_batch)
             # append current gradient to list of gradients 
             with torch.no_grad():
                 for name, p in model.named_parameters():
                     if p.requires_grad:
-                        old_params = model_old_params[name]
-                        p.data = old_params.data.to(f"cuda:{p.device.index}")
-                        if old_params.grad is not None and p.grad is not None:
-                            p.grad += old_params.grad.to(f"cuda:{p.device.index}")
+                        p.data = model_old_params[name].data.to(f"cuda:{p.device.index}")
 
             del model_old_params
             return loss.detach()
