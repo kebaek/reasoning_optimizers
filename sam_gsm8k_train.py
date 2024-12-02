@@ -176,9 +176,11 @@ def train():
                 for name, p in model.named_parameters():
                     if p.requires_grad:
                         if self.split_gpus:
-                            model_old_params[name] = p.clone().to(f"cuda:{p.device.index + self.custom_num_devices}")
+                            model_old_params[name] = p.to(f"cuda:{p.device.index + self.custom_num_devices}")
+                            model_old_params[name].grad = p.grad.to(f"cuda:{p.device.index + self.custom_num_devices}")
                         else:
                             model_old_params[name] = p.clone()
+                            model_old_params[name].grad = p.grad.clone()
             
             ## Get Nabla W
             with sync(model): 
@@ -193,7 +195,6 @@ def train():
                 with self.compute_loss_context_manager():
                     loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
                 self.accelerator.backward(loss)
-
                 ## Clip Grad Norm
                 norm = self.accelerator.clip_grad_norm_(model.parameters(), self.sam_rho)
 
@@ -204,7 +205,6 @@ def train():
                     lr = 1
 
                 ## Perturb Weights
-                norm = 0
                 with torch.no_grad():
                     # self.custom_apply(model, lambda m: self.perturb(m, lr))
                     for p in model.parameters():
@@ -212,35 +212,22 @@ def train():
                         if p.data.shape != p.grad.shape:
                             print('before FSDP summon', p.data.shape, p.grad.shape)
                         p.data += lr * p.grad
-                        norm += p.grad.norm().item() ** 2
-                # norm = norm ** (0.5)
-                # print('Norm After Clipping:', norm)
                 self.accelerator.scaler._per_optimizer_states = old_optim_stats
                 
             ## Get Training Step at Perturbed Model
             model.zero_grad()
-            loss = super().training_step(model, inputs, num_items_in_batch)
-
+            super().training_step(model, inputs, num_items_in_batch)
             # append current gradient to list of gradients 
             with torch.no_grad():
                 for name, p in model.named_parameters():
                     if p.requires_grad:
                         old_params = model_old_params[name]
+                        p.data = old_params.data.to(f"cuda:{p.device.index}")
                         if old_params.grad is not None and p.grad is not None:
-                            if self.split_gpus:
-                                p.data = old_params.data.to(f"cuda:{p.device.index}")
-                                p.grad += old_params.grad.to(f"cuda:{p.device.index}")
-                            else:
-                                p.data = old_params.data
-                                p.grad += old_params.grad
-                        else: 
-                            if self.split_gpus:
-                                p.data = old_params.data.to(f"cuda:{p.device.index}")
-                            else:
-                                p.data = old_params.data
+                            p.grad += old_params.grad.to(f"cuda:{p.device.index}")
 
             del model_old_params
-            return loss
+            return loss.detach()
 
     
     training_args = TrainingArguments(
