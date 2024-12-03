@@ -162,41 +162,51 @@ def train():
     
     #output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
     output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
-    
+
+    class DummyTensor:
+        def __init__(self):
+            self.data = None 
+            self.grad = None
+
     class CustomTrainer(Trainer):
         sam_rho = args.rho
         split_gpus = args.split_gpus
         custom_num_devices = num_devices            
 
         def training_step(self, model, inputs, num_items_in_batch=None):
-            torch.distributed.barrier()
+            # To keep gradients sharded. Trainer by default runs training_step
+            # with no_sync context manager for all grad accumulation step before last one.
+            ## This training step always syncs gradients of FSDP for ease of implementation
 
+            torch.distributed.barrier()
+            model.train()
+            
             ## Save Old Parameters by Cloning
             model_old_params = {}
             with torch.no_grad():
                 for name, p in model.named_parameters():
+                    device = f"cuda:{p.device.index + self.custom_num_devices}" if self.split_gpus else f"cuda:{p.device.index}"
                     if p.requires_grad:
-                        if self.split_gpus:
-                            model_old_params[name] = deepcopy(p)
-                            model_old_params[name].data = model_old_params[name].data.to(f"cuda:{p.device.index + self.custom_num_devices}")
-                            model_old_params[name].grad = model_old_params[name].grad.to(f"cuda:{p.device.index + self.custom_num_devices}")
-                        else:
-                            model_old_params[name] = deepcopy(p)
-                        torch.cuda.empty_cache()
-            
+                        model_old_params[name] = DummyTensor()
+                        model_old_params[name].data = torch.empty_like(p.data, device=device)
+                        model_old_params[name].data.copy_(p.data)
+                        if p.grad is not None:
+                            model_old_params[name].grad = torch.empty_like(p.grad, device=device)
+                            model_old_params[name].grad.copy_(p.grad)
+                            p.grad.fill_(0)
+
             ## Get Nabla W
-            with sync(model): 
-                # To keep gradients sharded. Trainer by default runs training_step
-                # with no_sync context manager for all grad accumulation step before last one.
-                model.train()
-                model.zero_grad()
-
-                old_optim_stats = self.accelerator.scaler._per_optimizer_states.copy()
-                self.accelerator.scaler._per_optimizer_states = defaultdict(refresh_optim)
-
+            old_optim_stats = self.accelerator.scaler._per_optimizer_states.copy()
+            self.accelerator.scaler._per_optimizer_states = defaultdict(refresh_optim)
+            with sync(model):
+                # Compute Loss
                 with self.compute_loss_context_manager():
                     loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+                if self.args.n_gpu > 1:
+                    loss = loss.mean()
+
                 self.accelerator.backward(loss)
+
                 ## Clip Grad Norm
                 norm = self.accelerator.clip_grad_norm_(model.parameters(), self.sam_rho)
 
@@ -209,29 +219,39 @@ def train():
                 ## Perturb Weights
                 with torch.no_grad():
                     # self.custom_apply(model, lambda m: self.perturb(m, lr))
-                    for p in model.parameters():
-                        if p.grad is None: continue 
-                        if p.data.shape != p.grad.shape:
-                            print('before FSDP summon', p.data.shape, p.grad.shape)
-                        p.data += lr * p.grad
-                self.accelerator.scaler._per_optimizer_states = old_optim_stats
+                    for name, p in model.named_parameters():
+                        if p.requires_grad:  
+                            if p.grad is not None:
+                                if p.data.shape != p.grad.shape:
+                                    print('before FSDP summon', p.data.shape, p.grad.shape)
+                                p.data += lr * p.grad
+
+                    self.accelerator.scaler._per_optimizer_states = old_optim_stats
+
+                    # Reset old grads 
+                    with torch.no_grad():
+                        for name, p in model.named_parameters():
+                            if p.requires_grad:
+                                old_grad = model_old_params[name].grad
+                                if old_grad is not None:
+                                    if model.device.index == 0 and model_old_params[name].data.shape != p.data.shape:
+                                        print('Old Data Mismatch', model_old_params[name].data.shape, p.data.shape)
+                                    p.grad.copy_(old_grad)
+                                elif p.grad is not None:
+                                    p.grad.fill_(0)
                         
             ## Get Training Step at Perturbed Model
-            with torch.no_grad():
-                for name, p in model.named_parameters():
-                    if p.requires_grad:
-                        old_params = model_old_params[name]
-                        if old_params.grad is not None:
-                            p.grad = old_params.grad.to(f"cuda:{p.device.index}")      
-            super().training_step(model, inputs, num_items_in_batch)
+            with sync(model):
+                super().training_step(model, inputs, num_items_in_batch)
             # append current gradient to list of gradients 
             with torch.no_grad():
                 for name, p in model.named_parameters():
                     if p.requires_grad:
-                        p.data = model_old_params[name].data.to(f"cuda:{p.device.index}")
+                        p.data.copy_(model_old_params[name].data)
 
             del model_old_params
-            return loss.detach()
+            torch.cuda.empty_cache()
+            return loss.detach() 
 
     
     training_args = TrainingArguments(
