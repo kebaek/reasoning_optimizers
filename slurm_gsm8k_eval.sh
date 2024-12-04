@@ -4,7 +4,13 @@ evaluate_checkpoints_gsm8k() {
 
     # Loop through all checkpoint directories
     for CKPT_DIR in ${CKPT_DIR_BASE}/checkpoint-*/
-    do
+    do  
+        # Check if the directory contains a file starting with "test_answers"
+        if ls "${CKPT_DIR}"test_answers* 1> /dev/null 2>&1; then
+            echo "Checkpoint ${CKPT_DIR} already contains test_answers files. Skipping."
+            continue
+        fi
+        
         # Create a unique job name for this checkpoint
         CKPT=$(basename $CKPT_DIR | sed 's/checkpoint-//')
         JOB_NAME="gsm8k_eval_${RUN_NAME}_${CKPT}"
