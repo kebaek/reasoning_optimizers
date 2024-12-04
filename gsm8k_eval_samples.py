@@ -36,9 +36,10 @@ smart_tokenizer_and_embedding_resize(
     tokenizer=tokenizer,
     model=model,
 )
-model = PeftModel.from_pretrained(model, args.ckpt_dir)
+if 'lora' in args.ckpt_dir:
+    model = PeftModel.from_pretrained(model, args.ckpt_dir)
+    
 model.generation_config.pad_token_id = tokenizer.pad_token_id
-
 model.to("cuda")
 
 model.eval()
