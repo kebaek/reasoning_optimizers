@@ -106,9 +106,8 @@ def train():
         save_strategy = "no"
         save_steps = None
     
-    output_dir = f"/data/locus/llm_weights/kbaek/ckpts/{project_name}_{run_name}"
     #output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
-   # output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
+    output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
     
     training_args = TrainingArguments(
         num_train_epochs = epochs, 
@@ -130,7 +129,7 @@ def train():
         save_only_model = True,
         run_name=run_name,
         fsdp= "full_shard auto_wrap",
-        fsdp_transformer_layer_cls_to_wrap= fsdp_layer_to_wrap(model_name),
+        fsdp_transformer_layer_cls_to_wrap= 'LlamaDecoderLayer',
         fp16=True,
         weight_decay=0.01,
         dataloader_num_workers=accelerator.num_processes,

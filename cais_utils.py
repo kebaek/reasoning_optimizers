@@ -286,12 +286,3 @@ def is_equiv(str1, str2, verbose=False):
         return ss1 == ss2
     except:
         return str1 == str2
-    
-
-def fsdp_layer_to_wrap(name):
-    if 'llama' in name:
-        return 'LlamaDecoderLayer'
-    if 'mistral' in  name:
-        return 'MistralDecoderLayer'
-    if 'grit' in name:
-        return 'MistralDecoderLayer'
