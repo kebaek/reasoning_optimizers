@@ -1,0 +1,12 @@
+/home/kbaek/miniconda3/envs/sphere/lib/python3.12/site-packages/transformers/models/auto/tokenization_auto.py:809: FutureWarning: The `use_auth_token` argument is deprecated and will be removed in v5 of Transformers. Please use `token` instead.
+  warnings.warn(
+Traceback (most recent call last):
+  File "/home/kbaek/reasoning_optimizers/gsm8k_eval_samples.py", line 21, in <module>
+    tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir, 
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kbaek/miniconda3/envs/sphere/lib/python3.12/site-packages/transformers/models/auto/tokenization_auto.py", line 939, in from_pretrained
+    return tokenizer_class_fast.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kbaek/miniconda3/envs/sphere/lib/python3.12/site-packages/transformers/tokenization_utils_base.py", line 2197, in from_pretrained
+    raise EnvironmentError(
+OSError: Can't load tokenizer for '/data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr2e-05_rho0_bs256_meta-llama-3-8b_WANDB8e29r32k/checkpoint-174'. If you were trying to load it from 'https://huggingface.co/models', make sure you don't have a local directory with the same name. Otherwise, make sure '/data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr2e-05_rho0_bs256_meta-llama-3-8b_WANDB8e29r32k/checkpoint-174' is the correct path to a directory containing all relevant files for a LlamaTokenizerFast tokenizer.

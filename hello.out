@@ -1,2 +1,2 @@
 python: can't open file '/home/kbaek/reasoning_optimizers/scripts/brandon.py': [Errno 2] No such file or directory
-slurmstepd: error: *** JOB 3391370 ON babel-0-23 CANCELLED AT 2024-11-24T07:22:10 ***
+slurmstepd: error: *** JOB 3723161 ON babel-1-27 CANCELLED AT 2024-12-18T00:31:57 ***

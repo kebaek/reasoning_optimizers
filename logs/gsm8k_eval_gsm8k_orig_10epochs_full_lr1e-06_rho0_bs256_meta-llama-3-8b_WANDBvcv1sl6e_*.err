@@ -1,0 +1,4 @@
+usage: gsm8k_eval_samples.py [-h] [--ckpt_dir CKPT_DIR] [--seed SEED]
+                             [--eval_type EVAL_TYPE]
+                             [--num_samples NUM_SAMPLES] [--temp TEMP]
+gsm8k_eval_samples.py: error: unrecognized arguments: /data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr1e-06_rho0_bs256_meta-llama-3-8b_WANDBvcv1sl6e/checkpoint-145 /data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr1e-06_rho0_bs256_meta-llama-3-8b_WANDBvcv1sl6e/checkpoint-174 /data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr1e-06_rho0_bs256_meta-llama-3-8b_WANDBvcv1sl6e/checkpoint-29 /data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr1e-06_rho0_bs256_meta-llama-3-8b_WANDBvcv1sl6e/checkpoint-58 /data/locus/large_training_datasets/kbaek/ckpts/gsm8k_orig_10epochs_full_lr1e-06_rho0_bs256_meta-llama-3-8b_WANDBvcv1sl6e/checkpoint-87
