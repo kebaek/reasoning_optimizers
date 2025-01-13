@@ -1,6 +1,7 @@
 evaluate_checkpoints_gsm8k() {
     local RUN_NAME=$1
-    local CKPT_DIR_BASE="/data/locus/large_training_datasets/kbaek/ckpts/$RUN_NAME"
+    #local CKPT_DIR_BASE="/data/locus/large_training_datasets/kbaek/ckpts/$RUN_NAME"
+    local CKPT_DIR_BASE="/data/locus/llm_weights/kbaek/ckpts/$RUN_NAME"
 
     # Loop through all checkpoint directories
     for CKPT_DIR in ${CKPT_DIR_BASE}/checkpoint-*/
@@ -16,7 +17,7 @@ evaluate_checkpoints_gsm8k() {
         JOB_NAME="gsm8k_eval_${RUN_NAME}_${CKPT}"
         echo $CKPT 
         # Submit the job using sbatch
-        sbatch --mem=70GB --gres=gpu:A6000:1 --job-name=$JOB_NAME --output=logs/${JOB_NAME}.out --error=logs/${JOB_NAME}.err --wrap="
+        sbatch --mem=70GB --gres=gpu:A6000:1 --partition=preempt --job-name=$JOB_NAME --requeue --time=1-00:00:00 --output=logs/${JOB_NAME}.out --error=logs/${JOB_NAME}.err --wrap="
         source ~/.bashrc
         conda activate sphere
         cd ~/reasoning_optimizers

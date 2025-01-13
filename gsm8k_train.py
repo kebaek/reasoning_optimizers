@@ -109,33 +109,6 @@ def train():
     output_dir = f"/data/locus/llm_weights/kbaek/ckpts/{project_name}_{run_name}"
     #output_dir = f"/data/locus/large_training_datasets/kbaek/ckpts/{project_name}_{run_name}"
    # output_dir = f"/data/christina_baek/reasoning_optimizers/ckpts/{project_name}_{run_name}"
-    
-    training_args = TrainingArguments(
-        num_train_epochs = epochs, 
-        per_device_train_batch_size = per_device_batch_size,
-        per_device_eval_batch_size = per_device_batch_size,
-        gradient_accumulation_steps = gradient_accumulation_steps,
-        lr_scheduler_type = "linear",
-        warmup_steps = 20,
-        learning_rate = learning_rate,
-        max_grad_norm = 2,
-        optim = "adamw_torch",
-        output_dir = output_dir,
-        evaluation_strategy = "no",
-        report_to = "wandb",
-        logging_strategy = "steps",
-        logging_steps = 25,
-        save_strategy = save_strategy,
-        save_steps=save_steps,
-        save_only_model = True,
-        run_name=run_name,
-        fsdp= "full_shard auto_wrap",
-        fsdp_transformer_layer_cls_to_wrap= fsdp_layer_to_wrap(model_name),
-        fp16=True,
-        weight_decay=0.01,
-        dataloader_num_workers=accelerator.num_processes,
-    )
-        
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
@@ -183,13 +156,40 @@ def train():
         )
         model = get_peft_model(model, lora_config)
 
+    data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
+
+    training_args = TrainingArguments(
+        max_steps = epochs * (len(data_module["train_dataset"]) // batch_size), 
+        per_device_train_batch_size = per_device_batch_size,
+        per_device_eval_batch_size = per_device_batch_size,
+        gradient_accumulation_steps = gradient_accumulation_steps,
+        lr_scheduler_type = "linear",
+        warmup_steps = 20,
+        learning_rate = learning_rate,
+        max_grad_norm = 2,
+        optim = "adamw_torch",
+        output_dir = output_dir,
+        evaluation_strategy = "no",
+        report_to = "wandb",
+        logging_strategy = "steps",
+        logging_steps = 25,
+        save_strategy = save_strategy,
+        save_steps=save_steps,
+        save_only_model = True,
+        run_name=run_name,
+        fsdp= "full_shard auto_wrap",
+        fsdp_transformer_layer_cls_to_wrap= fsdp_layer_to_wrap(model_name),
+        fp16=True,
+        weight_decay=0.01,
+        dataloader_num_workers=accelerator.num_processes,
+    )
+        
     if accelerator.is_main_process:
         import wandb
         config = vars(args) | asdict(training_args)
         run = wandb.init(project='reasoning_optimizer', entity='kbaek', config=config)
         training_args.output_dir = training_args.output_dir + '_WANDB' + run.id
 
-    data_module = make_supervised_data_module(output_dir, train_type, tokenizer=tokenizer)
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     
