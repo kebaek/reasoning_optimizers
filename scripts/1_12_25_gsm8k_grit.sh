@@ -1,0 +1,2 @@
+TOKENIZERS_PARALLELISM=false accelerate launch --multi_gpu --mixed_precision=fp16 --main_process_port=1234 gsm8k_train.py --learning_rate 2e-5 --epochs 10 --per_device_batch_size 2 --model GritLM/GritLM-7B
+

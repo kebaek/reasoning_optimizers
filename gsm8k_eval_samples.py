@@ -110,8 +110,8 @@ TOTAL_EXAMPLES = len(eval_questions)
 print('What is sample', n)
 
 # if raw_output files exist, load it
-if os.path.exists(os.path.join(args.ckpt_dir, f"{args.eval_type}_raw_ouputs{args.num_samples}_seed{args.seed}_temp{args.temp}.npy")):
-    output = np.load(os.path.join(args.ckpt_dir, f"{args.eval_type}_raw_ouputs{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), allow_pickle=True).tolist()
+if os.path.exists(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy")):
+    output = np.load(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), allow_pickle=True).tolist()
 else:
     output = [] 
 
@@ -126,26 +126,26 @@ for i in tqdm(range(len(output), TOTAL_EXAMPLES)):
     output.append(samples)
 
     if i % 20 == 0:
-        np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_raw_ouputs{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), np.array(output))
-np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_raw_ouputs{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), np.array(output))
+        np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), np.array(output))
+np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), np.array(output))
 
 answer_types_all = []
-answers_all = []
+# answers_all = []
 for i in range(len(output)):
     answer_types = []
-    answers = []
+    # answers = []
     for item in output[i]:
-        answers.append(item)
+        # answers.append(item)
         answer_type = answer_type_individial(item, eval_answers[i])
         answer_types.append(answer_type)
     answer_types_all.append(answer_types)
-    answers_all.append(answers)
+    # answers_all.append(answers)
 
 answer_types_all = np.array(answer_types_all)
-answers_all = np.array(answers_all)
+# answers_all = np.array(answers_all)
 print((answer_types_all==0).mean(axis=-1).mean()) #ratio correct
 print((answer_types_all==1).mean(axis=-1).mean()) #ratio incorrect
 print((answer_types_all==2).mean(axis=-1).mean()) #ratio weird formatting
 
-np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), answers_all)
+# np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answers{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), answers_all)
 np.save(os.path.join(args.ckpt_dir, f"{args.eval_type}_answer_types{args.num_samples}_seed{args.seed}_temp{args.temp}.npy"), answer_types_all)
