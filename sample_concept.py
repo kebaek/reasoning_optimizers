@@ -145,10 +145,10 @@ test_answers = dataset["test"]['answer']
 eval_questions = test_questions
 eval_questions = [question + "\nAnswer:" for question in eval_questions]
 eval_answers = test_answers
-np.random.seed(0)
-random_100_idxs = np.random.choice(len(eval_questions), 40, replace=False)
-eval_questions = [eval_questions[i] for i in random_100_idxs]
-eval_answers = [eval_answers[i] for i in random_100_idxs]
+# np.random.seed(0)
+# random_100_idxs = np.random.choice(len(eval_questions), 40, replace=False)
+# eval_questions = [eval_questions[i] for i in random_100_idxs]
+# eval_answers = [eval_answers[i] for i in random_100_idxs]
 
 
 ckpt_dir = '/data/locus/llm_weights/kbaek/ckpts/gsm8k_orig_10epochs_full_lr2e-05_rho0_bs128_mistral-7b-v0.1_WANDBm6j3wdw9/checkpoint-580/'

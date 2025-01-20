@@ -103,8 +103,9 @@ temperature=args.temp
 max_tokens=512
 top_p=0.95
 seed=args.seed
-stop="\nDone."
-bad_words_ids = [tokenizer(stop).input_ids]
+stop="\nDone"
+bad_words_ids = [tokenizer(stop).input_ids[2:]]
+stopping_criteria = StoppingCriteriaList([StoppingCriteriaSub(stops = bad_words_ids)])
 
 TOTAL_EXAMPLES = len(eval_questions)
 print('What is sample', n)
@@ -121,7 +122,7 @@ for i in tqdm(range(len(output), TOTAL_EXAMPLES)):
 
     x = eval_questions[i] 
     tokens = tokenizer(x, return_tensors='pt').to('cuda')
-    predictions = model.generate(**tokens, do_sample=True, temperature=temperature, max_new_tokens=max_tokens, top_p=top_p, bad_words_ids=bad_words_ids, num_return_sequences=n)
+    predictions = model.generate(**tokens, do_sample=True, temperature=temperature, max_new_tokens=max_tokens, top_p=top_p, stopping_criteria=stopping_criteria, num_return_sequences=n)
     samples = [tokenizer.decode(o) for o in predictions]
     output.append(samples)
 

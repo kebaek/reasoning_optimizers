@@ -12,7 +12,6 @@ from datasets import load_dataset
 import numpy as np
 import argparse
 import json
-from transformers import StoppingCriteria, StoppingCriteriaList
 
 
 
@@ -20,23 +19,6 @@ IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
 # DEFAULT_EOS_TOKEN = "</s>"
 
-class StoppingCriteriaSub(StoppingCriteria):
-
-    def __init__(self, stops = []):
-      super().__init__()
-      self.stops = stops
-      self.encounters = len(stops)
-      self.stop_count = defaultdict(lambda: 0)
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-      for stop in self.stops:
-        for i, x in enumerate(input_ids):
-          self.stop_count[i] += int(input_ids[-len(stop)] == stop)
-
-      if all([v >= self.encounters for v in self.stop_count.values()]):
-          return True
-      return False
-    
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
     """Tokenize a list of strings."""
     tokenized_list = [
